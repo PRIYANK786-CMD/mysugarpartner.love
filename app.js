@@ -317,7 +317,8 @@ const setupGlobalMessageListeners = async (uid) => {
                 let count = 0;
                 snapshot.forEach(docSnap => {
                     const msg = docSnap.data();
-                    if (msg.senderId !== uid && msg.read === false) {
+                    const deletedForMe = msg.deletedFor && msg.deletedFor.includes(uid);
+                    if (msg.senderId !== uid && msg.read === false && !deletedForMe) {
                         count++;
                     }
                 });
@@ -630,15 +631,18 @@ const loadMatches = async () => {
                 const online = presenceDoc.exists() && isUserOnline(presenceDoc.data().lastSeen);
                 const onlineDot = online ? '<span class="w-2.5 h-2.5 bg-green-500 rounded-full inline-block mr-1"></span>' : '';
 
-                // Count exact unread messages sent by this specific user
                 const roomId = [currentUser.uid, matchId].sort().join("_");
-                const unreadQuery = query(
-                    collection(db, "chats", roomId, "messages"),
-                    where("senderId", "==", matchId),
-                    where("read", "==", false)
-                );
-                const unreadSnap = await getDocs(unreadQuery);
-                const unreadCount = unreadSnap.size;
+                const messagesRef = collection(db, "chats", roomId, "messages");
+                const snapshot = await getDocs(messagesRef);
+                
+                let unreadCount = 0;
+                snapshot.forEach(docSnap => {
+                    const msg = docSnap.data();
+                    const deletedForMe = msg.deletedFor && msg.deletedFor.includes(currentUser.uid);
+                    if (msg.senderId === matchId && msg.read === false && !deletedForMe) {
+                        unreadCount++;
+                    }
+                });
 
                 const badgeHTML = unreadCount > 0 
                     ? '<span class="ml-auto px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shadow">' + unreadCount + '</span>' 
@@ -661,7 +665,7 @@ const loadMatches = async () => {
 
 window.clearChatHistory = async () => {
     if (!currentChatUserId) return;
-    if (!confirm("Are you sure you want to clear the entire chat history for this conversation?")) return;
+    if (!confirm("Are you sure you want to clear your chat history? This will only clear it on your screen.")) return;
 
     const currentUser = auth.currentUser;
     const roomId = [currentUser.uid, currentChatUserId].sort().join("_");
@@ -670,11 +674,18 @@ window.clearChatHistory = async () => {
     try {
         const snapshot = await getDocs(messagesRef);
         const batch = writeBatch(db);
+        
         snapshot.forEach((docSnap) => {
-            batch.delete(docSnap.ref);
+            const data = docSnap.data();
+            const deletedFor = data.deletedFor || [];
+            if (!deletedFor.includes(currentUser.uid)) {
+                deletedFor.push(currentUser.uid);
+                batch.update(docSnap.ref, { deletedFor: deletedFor });
+            }
         });
+
         await batch.commit();
-        alert("Chat history cleared successfully.");
+        alert("Chat history cleared for you.");
     } catch (error) {
         alert("Error clearing chat: " + error.message);
     }
@@ -683,7 +694,6 @@ window.clearChatHistory = async () => {
 window.openChat = async (matchId, matchName) => {
     currentChatUserId = matchId;
     
-    // Render Chat Header with Clear History button
     chatHeader.innerHTML = 
         '<div class="flex justify-between items-center w-full">' +
         '<span>Chat with ' + matchName + '</span>' +
@@ -703,7 +713,10 @@ window.openChat = async (matchId, matchName) => {
     try {
         const unreadSnap = await getDocs(query(messagesRef, where("senderId", "==", matchId), where("read", "==", false)));
         unreadSnap.forEach(async (msgDoc) => {
-            await updateDoc(doc(db, "chats", roomId, "messages", msgDoc.id), { read: true });
+            const data = msgDoc.data();
+            if (!data.deletedFor || !data.deletedFor.includes(currentUser.uid)) {
+                await updateDoc(doc(db, "chats", roomId, "messages", msgDoc.id), { read: true });
+            }
         });
     } catch (e) {
         console.error(e);
@@ -715,6 +728,11 @@ window.openChat = async (matchId, matchName) => {
 
         snapshot.forEach((docSnap) => {
             const msg = docSnap.data();
+
+            if (msg.deletedFor && msg.deletedFor.includes(currentUser.uid)) {
+                return;
+            }
+
             const isMe = msg.senderId === currentUser.uid;
             const bubbleClass = isMe ? "bg-pink-600 text-white ml-auto rounded-l-xl rounded-tr-xl" : "bg-white text-gray-800 border mr-auto rounded-r-xl rounded-tl-xl";
 
@@ -722,7 +740,6 @@ window.openChat = async (matchId, matchName) => {
                 batchUpdates.push(updateDoc(doc(db, "chats", roomId, "messages", docSnap.id), { read: true }));
             }
 
-            // WhatsApp style receipt tick indicator
             let receiptHTML = "";
             if (isMe) {
                 const tickColor = msg.read ? "text-cyan-200" : "text-white/70";
@@ -855,6 +872,7 @@ chatForm.addEventListener("submit", async (e) => {
             fileName: fileName,
             fileType: fileType,
             read: false,
+            deletedFor: [],
             timestamp: new Date().toISOString()
         });
         chatInput.value = "";
