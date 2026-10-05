@@ -1,148 +1,4 @@
-window.openChat = async (matchId, matchName) => {
-    currentChatUserId = matchId;
-    
-    chatHeader.innerHTML = 
-        '<div class="flex justify-between items-center w-full">' +
-        '<span>Chat with ' + matchName + '</span>' +
-        '<button onclick="window.clearChatHistory()" class="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 text-[10px] font-bold rounded-lg transition">Clear History</button>' +
-        '</div>';
-
-    chatForm.classList.remove("hidden");
-    videoCallBtn.classList.remove("hidden");
-
-    const currentUser = auth.currentUser;
-    const roomId = [currentUser.uid, matchId].sort().join("_");
-    const messagesRef = collection(db, "chats", roomId, "messages");
-    const q = query(messagesRef, orderBy("timestamp", "asc"));
-
-    if (unsubscribeChat) unsubscribeChat();
-
-    try {
-        const unreadSnap = await getDocs(query(messagesRef, where("senderId", "==", matchId), where("read", "==", false)));
-        unreadSnap.forEach(async (msgDoc) => {
-            const data = msgDoc.data();
-            if (!data.deletedFor || !data.deletedFor.includes(currentUser.uid)) {
-                await updateDoc(doc(db, "chats", roomId, "messages", msgDoc.id), { read: true });
-            }
-        });
-    } catch (e) {
-        console.error(e);
-    }
-
-    unsubscribeChat = onSnapshot(q, async (snapshot) => {
-        let messagesHTML = "";
-        const batchUpdates = [];
-
-        snapshot.forEach((docSnap) => {
-            const msg = docSnap.data();
-
-            if (msg.deletedFor && msg.deletedFor.includes(currentUser.uid)) {
-                return;
-            }
-
-            const isMe = msg.senderId === currentUser.uid;
-            const bubbleClass = isMe ? "bg-pink-600 text-white ml-auto rounded-l-xl rounded-tr-xl" : "bg-white text-gray-800 border mr-auto rounded-r-xl rounded-tl-xl";
-
-            if (!isMe && msg.read === false) {
-                batchUpdates.push(updateDoc(doc(db, "chats", roomId, "messages", docSnap.id), { read: true }));
-            }
-
-            let receiptHTML = "";
-            if (isMe) {
-                const tickColor = msg.read ? "text-cyan-200" : "text-white/70";
-                const ticks = msg.read ? "✓✓" : "✓";
-                receiptHTML = '<span class="ml-2 text-[10px] font-bold ' + tickColor + '">' + ticks + '</span>';
-            }
-
-            let contentHTML = '<p>' + (msg.text || '') + '</p>';
-            if (msg.fileData) {
-                const downloadBtn = '<a href="' + msg.fileData + '" download="' + (msg.fileName || 'saved-file') + '" class="inline-flex items-center mt-2 px-2.5 py-1 bg-black/20 hover:bg-black/30 text-white text-[10px] font-bold rounded-lg transition">⬇ Save File</a>';
-                
-                if (msg.fileType && msg.fileType.startsWith('image/')) {
-                    contentHTML += '<div class="mt-2"><img src="' + msg.fileData + '" class="max-w-xs rounded-lg max-h-48 object-cover"><br>' + downloadBtn + '</div>';
-                } else if (msg.fileType && msg.fileType.startsWith('video/')) {
-                    contentHTML += '<div class="mt-2"><video controls class="max-w-xs rounded-lg max-h-48"><source src="' + msg.fileData + '"></video><br>' + downloadBtn + '</div>';
-                } else if (msg.fileType && msg.fileType.startsWith('audio/')) {
-                    contentHTML += '<div class="mt-2"><audio controls class="w-full"><source src="' + msg.fileData + '"></audio><br>' + downloadBtn + '</div>';
-                } else {
-                    contentHTML += '<div class="mt-2"><p class="text-xs font-semibold">📎 ' + (msg.fileName || 'Document') + '</p>' + downloadBtn + '</div>';
-                }
-            }
-
-            messagesHTML += '<div class="max-w-[75%] p-3 rounded-xl shadow-sm text-xs ' + bubbleClass + '">' + contentHTML + '<div class="text-right">' + receiptHTML + '</div></div>';
-        });
-
-        if (batchUpdates.length > 0) {
-            await Promise.all(batchUpdates);
-        }
-
-        chatMessages.innerHTML = messagesHTML || '<p class="text-center text-gray-400 text-xs mt-10">Say hello! 👋</p>';
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    });
-};
-
-if (chatFileInput) {
-    chatFileInput.addEventListener("change", () => {
-        const file = chatFileInput.files[0];
-        if (file) {
-            chatPreviewContainer?.classList.remove("hidden");
-            if (file.type.startsWith("image/")) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    if (chatImgPreview) {
-                        chatImgPreview.src = e.target.result;
-                        chatImgPreview.classList.remove("hidden");
-                    }
-                    chatFileNamePreview?.classList.add("hidden");
-                };
-                reader.readAsDataURL(file);
-            } else {
-                chatImgPreview?.classList.add("hidden");
-                if (chatFileNamePreview) {
-                    chatFileNamePreview.textContent = "📎 " + file.name;
-                    chatFileNamePreview.classList.remove("hidden");
-                }
-            }
-        } else {
-            chatPreviewContainer?.classList.add("hidden");
-        }
-    });
-}
-
-if (removeAttachmentBtn) {
-    removeAttachmentBtn.addEventListener("click", () => {
-        if (chatFileInput) chatFileInput.value = "";
-        chatPreviewContainer?.classList.add("hidden");
-        if (chatImgPreview) chatImgPreview.src = "";
-        if (chatFileNamePreview) chatFileNamePreview.textContent = "";
-    });
-}
-
-chatForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const currentUser = auth.currentUser;
-    if (!currentUser || !currentChatUserId) return;
-
-    const text = chatInput.value.trim();
-    const file = chatFileInput.files[0];
-    if (!text && !file) return;
-
-    let fileData = null, fileName = null, fileType = null;
-    if (file) {
-        fileData = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = (event) => {
-                if (file.type.startsWith('image/')) {
-                    const img = new Image();
-                    img.src = event.target.Here is your updated and optimized **`app.js`** file split into **6 manageable parts**. You can copy and paste them sequentially into your VS Code `app.js` file to replace everything cleanly without hitting size limits.
-
----
-
-### Part 1: Imports, Configuration, and DOM Elements
-
-```javascript
-import { initializeApp } from "[https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js](https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js)";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
     getAuth, 
     createUserWithEmailAndPassword, 
@@ -153,7 +9,7 @@ import {
     sendPasswordResetEmail,
     updatePassword,
     deleteUser
-} from "[https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js](https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js)";
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { 
     getFirestore, 
     doc, 
@@ -171,7 +27,7 @@ import {
     limit,
     startAfter,
     writeBatch
-} from "[https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js](https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js)";
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBSX4KMq5gKcZqgb0c5bWxEq3ubzafkhHo",
@@ -283,6 +139,7 @@ let hasMoreProfiles = true;
 let peerConnection = null;
 let localStream = null;
 const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
 const setAuthMode = (mode) => {
     authMode = mode;
     forgotPasswordLink.classList.add("hidden");
@@ -425,6 +282,7 @@ resendVerificationBtn.addEventListener("click", async () => {
         alert("Error: " + error.message);
     }
 });
+
 const startOnlineHeartbeat = (uid) => {
     if (onlineStatusInterval) clearInterval(onlineStatusInterval);
     const updatePresence = async () => {
@@ -558,140 +416,225 @@ if (loadMoreBtn) {
         loadUserLikesAndFeed(true);
     });
 }
-    const startOnlineHeartbeat = (uid) => {
-    if (onlineStatusInterval) clearInterval(onlineStatusInterval);
-    const updatePresence = async () => {
-        try {
-            await setDoc(doc(db, "presence", uid), { lastSeen: new Date().toISOString() }, { merge: true });
-        } catch (e) { console.error(e); }
-    };
-    updatePresence();
-    onlineStatusInterval = setInterval(updatePresence, 30000);
-};
 
-const isUserOnline = (lastSeenString) => {
-    if (!lastSeenString) return false;
-    return (new Date().getTime() - new Date(lastSeenString).getTime()) < 60000;
-};
+window.sendLikeRequest = async (targetUserId) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    if (currentUser.uid === targetUserId) {
+        alert("You cannot like yourself!");
+        return;
+    }
 
-const setupGlobalMessageListeners = async (uid) => {
-    globalUnsubscribeListeners.forEach(unsub => unsub());
-    globalUnsubscribeListeners = [];
+    const existingStatus = myLikesMap.get(targetUserId);
+    if (existingStatus === "pending") {
+        alert("You already have a pending request sent to this user!");
+        return;
+    }
+    if (existingStatus === "accepted") {
+        alert("You are already connected with this user! Check your Chats tab ✨");
+        return;
+    }
 
     try {
-        const acceptedLikes = await getDocs(query(collection(db, "likes"), where("status", "==", "accepted")));
-        const mutualMatchIds = new Set();
-
-        acceptedLikes.forEach(docSnap => {
-            const data = docSnap.data();
-            if (data.fromUserId === uid && !blockedUsersSet.has(data.toUserId)) mutualMatchIds.add(data.toUserId);
-            if (data.toUserId === uid && !blockedUsersSet.has(data.fromUserId)) mutualMatchIds.add(data.fromUserId);
+        const likeId = currentUser.uid + "_" + targetUserId;
+        await setDoc(doc(db, "likes", likeId), {
+            fromUserId: currentUser.uid,
+            toUserId: targetUserId,
+            status: "pending",
+            timestamp: new Date().toISOString()
         });
-
-        const unreadPerChat = {};
-
-        mutualMatchIds.forEach(matchId => {
-            const roomId = [uid, matchId].sort().join("_");
-            const messagesRef = collection(db, "chats", roomId, "messages");
-            
-            const unsub = onSnapshot(messagesRef, (snapshot) => {
-                let count = 0;
-                snapshot.forEach(docSnap => {
-                    const msg = docSnap.data();
-                    const deletedForMe = msg.deletedFor && msg.deletedFor.includes(uid);
-                    if (msg.senderId !== uid && msg.read === false && !deletedForMe) {
-                        count++;
-                    }
-                });
-                unreadPerChat[matchId] = count;
-
-                let sum = 0;
-                for (let key in unreadPerChat) sum += unreadPerChat[key];
-
-                if (sum > 0) chatBadge.classList.remove("hidden");
-                else chatBadge.classList.add("hidden");
-            });
-            globalUnsubscribeListeners.push(unsub);
-        });
-    } catch (e) { console.error(e); }
+        myLikesMap.set(targetUserId, "pending");
+        alert("Like request sent! 💌");
+        profileModal.classList.add("hidden");
+        loadUserLikesAndFeed();
+    } catch (error) {
+        alert("Error: " + error.message);
+    }
 };
 
-const loadUserLikesAndFeed = async (isLoadMore = false) => {
+window.blockUser = async (targetUserId) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    if (!confirm("Are you sure you want to block this user?")) return;
+
+    try {
+        const blockId = currentUser.uid + "_" + targetUserId;
+        await setDoc(doc(db, "blocks", blockId), {
+            blockerId: currentUser.uid,
+            blockedId: targetUserId,
+            timestamp: new Date().toISOString()
+        });
+        blockedUsersSet.add(targetUserId);
+        alert("User blocked successfully.");
+        profileModal.classList.add("hidden");
+        loadUserLikesAndFeed();
+    } catch (error) {
+        alert("Error: " + error.message);
+    }
+};
+
+const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
+
+const renderProfileCard = async (uid) => {
+    const userDoc = await getDoc(doc(db, "users", uid));
+    if (userDoc.exists()) {
+        const data = userDoc.data();
+        profileCardContainer.innerHTML = 
+            '<div class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">' +
+            '<img src="' + (data.photoURL || defaultAvatar) + '" class="w-32 h-32 object-cover rounded-full shadow-md border-4 border-pink-500">' +
+            '<div class="text-center sm:text-left flex-grow">' +
+            '<h3 class="text-2xl font-bold text-gray-800">' + (data.name || 'Member') + (data.age ? ', ' + data.age : '') + '</h3>' +
+            '<p class="text-pink-600 font-semibold mt-1">Intent: <span class="capitalize">' + (data.relationshipGoal || 'Not specified') + '</span></p>' +
+            '<div class="mt-3 space-y-1 text-sm text-gray-600">' +
+            '<p><span class="font-semibold text-gray-700">T1D History:</span> ' + (data.t1dHistory || 'Not specified') + '</p>' +
+            '<p><span class="font-semibold text-gray-700">Country:</span> ' + (data.country || 'Not specified') + '</p>' +
+            '<p><span class="font-semibold text-gray-700">Hobbies:</span> ' + (data.hobbies || 'Not specified') + '</p>' +
+            '</div></div></div>';
+    }
+};
+
+window.openProfileModal = async (memberId) => {
+    const member = allCommunityMembers.find(m => m.id === memberId);
+    if (!member) return;
+
+    const presenceDoc = await getDoc(doc(db, "presence", memberId));
+    const online = presenceDoc.exists() && isUserOnline(presenceDoc.data().lastSeen);
+    const statusHtml = online 
+        ? '<span class="inline-flex items-center text-xs text-green-600 font-semibold"><span class="w-2 h-2 bg-green-500 rounded-full mr-1.5 animate-pulse"></span> Online Now</span>'
+        : '<span class="text-xs text-gray-400">Offline</span>';
+
+    const likeStatus = myLikesMap.get(member.id);
+    let btnText = "Send Like Request 💌";
+    let btnDisabled = false;
+    if (likeStatus === "pending") {
+        btnText = "Request Pending ⏳";
+        btnDisabled = true;
+    } else if (likeStatus === "accepted") {
+        btnText = "Connected ✨";
+        btnDisabled = true;
+    }
+
+    modalContent.innerHTML = 
+        '<div class="flex flex-col items-center text-center space-y-3">' +
+        '<img src="' + (member.photoURL || defaultAvatar) + '" class="w-28 h-28 rounded-full object-cover border-4 border-pink-500 shadow-md">' +
+        '<div><h3 class="text-xl font-bold text-gray-800">' + (member.name || 'Member') + (member.age ? ', ' + member.age : '') + '</h3>' + statusHtml + '</div>' +
+        '<p class="text-pink-600 font-semibold text-sm">Intent: ' + (member.relationshipGoal || 'Not specified') + '</p>' +
+        '<div class="w-full text-left bg-gray-50 p-4 rounded-xl space-y-2 text-xs text-gray-700">' +
+        '<p><span class="font-bold">Country:</span> ' + (member.country || 'Not specified') + '</p>' +
+        '<p><span class="font-bold">T1D History:</span> ' + (member.t1dHistory || 'Not specified') + '</p>' +
+        '<p><span class="font-bold">Hobbies:</span> ' + (member.hobbies || 'Not specified') + '</p></div></div>';
+
+    modalActions.innerHTML = 
+        '<button onclick="window.sendLikeRequest(\'' + member.id + '\')" ' + (btnDisabled ? 'disabled class="w-full py-2.5 bg-gray-300 text-gray-600 font-bold rounded-xl text-xs cursor-not-allowed"' : 'class="w-full py-2.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-xl text-xs shadow transition"') + '>' + btnText + '</button>' +
+        '<button onclick="window.blockUser(\'' + member.id + '\')" class="w-full py-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold rounded-xl text-xs transition">Block User</button>';
+
+    profileModal.classList.remove("hidden");
+};
+
+closeModalBtn.addEventListener("click", () => profileModal.classList.add("hidden"));
+profileModal.addEventListener("click", (e) => { if (e.target === profileModal) profileModal.classList.add("hidden"); });
+
+const renderFilteredFeed = (members) => {
+    const searchTerm = searchNameInput.value.toLowerCase().trim();
+    const selectedGoal = filterGoalSelect.value;
+
+    const filtered = members.filter(member => {
+        const nameMatch = (member.name || "").toLowerCase().includes(searchTerm);
+        const goalMatch = selectedGoal === "" || member.relationshipGoal === selectedGoal;
+        return nameMatch && goalMatch;
+    });
+
+    let feedHTML = "";
+    filtered.forEach((data) => {
+        const likeStatus = myLikesMap.get(data.id);
+        let btnText = "Send Like 💌";
+        let btnClass = "px-4 py-1.5 bg-pink-100 hover:bg-pink-200 text-pink-700 text-xs font-bold rounded-lg transition";
+        if (likeStatus === "pending") {
+            btnText = "Pending ⏳";
+            btnClass = "px-4 py-1.5 bg-gray-200 text-gray-600 text-xs font-bold rounded-lg cursor-not-allowed";
+        } else if (likeStatus === "accepted") {
+            btnText = "Matched ✨";
+            btnClass = "px-4 py-1.5 bg-pink-600 text-white text-xs font-bold rounded-lg";
+        }
+
+        feedHTML += 
+            '<div class="bg-gray-50 border rounded-xl p-4 flex flex-col items-center sm:flex-row sm:items-start space-y-4 sm:space-y-0 sm:space-x-4 shadow-sm">' +
+            '<img src="' + (data.photoURL || defaultAvatar) + '" class="w-20 h-20 object-cover rounded-full border-2 border-pink-500 flex-shrink-0 cursor-pointer" onclick="window.openProfileModal(\'' + data.id + '\')">' +
+            '<div class="flex-grow text-center sm:text-left">' +
+            '<h4 class="text-lg font-bold text-gray-800 cursor-pointer hover:text-pink-600" onclick="window.openProfileModal(\'' + data.id + '\')">' + (data.name || 'Member') + (data.age ? ', ' + data.age : '') + '</h4>' +
+            '<p class="text-xs text-pink-600 font-semibold">Intent: ' + (data.relationshipGoal || 'Not specified') + '</p>' +
+            '<p class="text-xs text-gray-600 mt-1"><span class="font-medium">Country:</span> ' + (data.country || 'Not specified') + '</p>' +
+            '<div class="mt-3 flex space-x-2 justify-center sm:justify-start">' +
+            '<button onclick="window.sendLikeRequest(\'' + data.id + '\')" class="' + btnClass + '">' + btnText + '</button>' +
+            '<button onclick="window.openProfileModal(\'' + data.id + '\')" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold rounded-lg transition">View Profile</button>' +
+            '</div></div></div>';
+    });
+
+    communityFeedContainer.innerHTML = feedHTML || '<p class="text-center text-gray-500 col-span-2">No members found.</p>';
+};
+
+window.respondToRequest = async (fromUserId, status) => {
+    try {
+        const likeId = fromUserId + "_" + auth.currentUser.uid;
+        await setDoc(doc(db, "likes", likeId), { status: status }, { merge: true });
+        alert(status === 'accepted' ? "Request accepted! Chat unlocked ✨" : "Request declined.");
+        loadRequestsTab();
+        loadUserLikesAndFeed();
+        setupGlobalMessageListeners(auth.currentUser.uid);
+    } catch (error) {
+        alert("Error: " + error.message);
+    }
+};
+
+const loadRequestsTab = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
 
-    if (!isLoadMore) {
-        myLikesMap.clear();
-        incomingLikesMap.clear();
-        blockedUsersSet.clear();
-        allCommunityMembers = [];
-        lastVisibleDoc = null;
-        hasMoreProfiles = true;
-    }
-
-    if (!hasMoreProfiles && isLoadMore) return;
+    incomingRequestsContainer.innerHTML = '<p class="text-xs text-gray-400">Loading incoming requests...</p>';
+    outgoingRequestsContainer.innerHTML = '<p class="text-xs text-gray-400">Loading outgoing requests...</p>';
 
     try {
-        if (!isLoadMore) {
-            const blocksSnap1 = await getDocs(query(collection(db, "blocks"), where("blockerId", "==", currentUser.uid)));
-            blocksSnap1.forEach(docSnap => blockedUsersSet.add(docSnap.data().blockedId));
-            const blocksSnap2 = await getDocs(query(collection(db, "blocks"), where("blockedId", "==", currentUser.uid)));
-            blocksSnap2.forEach(docSnap => blockedUsersSet.add(docSnap.data().blockerId));
-
-            const myLikesSnap = await getDocs(query(collection(db, "likes"), where("fromUserId", "==", currentUser.uid)));
-            myLikesSnap.forEach(docSnap => myLikesMap.set(docSnap.data().toUserId, docSnap.data().status));
-
-            const incomingSnap = await getDocs(query(collection(db, "likes"), where("toUserId", "==", currentUser.uid)));
-            incomingSnap.forEach(docSnap => incomingLikesMap.set(docSnap.data().fromUserId, { id: docSnap.id, ...docSnap.data() }));
-
-            let pendingIncomingCount = 0;
-            incomingLikesMap.forEach((val) => { if (val.status === "pending") pendingIncomingCount++; });
-            if (pendingIncomingCount > 0) requestsBadge.classList.remove("hidden");
-            else requestsBadge.classList.add("hidden");
-        }
-
-        let usersQuery = query(collection(db, "users"), orderBy("__name__"), limit(PAGE_SIZE));
-        if (isLoadMore && lastVisibleDoc) {
-            usersQuery = query(collection(db, "users"), orderBy("__name__"), startAfter(lastVisibleDoc), limit(PAGE_SIZE));
-        }
-
-        const querySnapshot = await getDocs(usersQuery);
-        
-        if (querySnapshot.empty) {
-            hasMoreProfiles = false;
-            if (loadMoreContainer) loadMoreContainer.classList.add("hidden");
-            return;
-        }
-
-        lastVisibleDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
-
-        if (querySnapshot.docs.length < PAGE_SIZE) {
-            hasMoreProfiles = false;
-            if (loadMoreContainer) loadMoreContainer.classList.add("hidden");
-        } else {
-            if (loadMoreContainer) loadMoreContainer.classList.remove("hidden");
-        }
-
-        querySnapshot.forEach((docSnap) => {
-            if (!blockedUsersSet.has(docSnap.id) && docSnap.id !== currentUser.uid) {
-                if (!allCommunityMembers.some(m => m.id === docSnap.id)) {
-                    allCommunityMembers.push({ id: docSnap.id, ...docSnap.data() });
-                }
+        let incomingHTML = "";
+        const incomingSnap = await getDocs(query(collection(db, "likes"), where("toUserId", "==", currentUser.uid)));
+        for (const docSnap of incomingSnap.docs) {
+            const data = docSnap.data();
+            if (blockedUsersSet.has(data.fromUserId)) continue;
+            const userDoc = await getDoc(doc(db, "users", data.fromUserId));
+            if (userDoc.exists() && data.status === "pending") {
+                const uData = userDoc.data();
+                incomingHTML += 
+                    '<div class="flex items-center justify-between p-3 bg-gray-50 border rounded-xl">' +
+                    '<div class="flex items-center space-x-3">' +
+                    '<img src="' + (uData.photoURL || defaultAvatar) + '" class="w-12 h-12 rounded-full object-cover border-2 border-pink-500">' +
+                    '<div><h5 class="font-bold text-xs text-gray-800">' + (uData.name || 'Member') + '</h5><p class="text-[10px] text-pink-600 font-semibold">Wants to connect 💕</p></div>' +
+                    '</div><div class="flex space-x-2">' +
+                    '<button onclick="window.respondToRequest(\'' + data.fromUserId + '\', \'accepted\')" class="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-bold rounded-lg">Accept</button>' +
+                    '<button onclick="window.respondToRequest(\'' + data.fromUserId + '\', \'rejected\')" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold rounded-lg">Decline</button>' +
+                    '</div></div>';
             }
-        });
+        }
+        incomingRequestsContainer.innerHTML = incomingHTML || '<p class="text-xs text-gray-400">No pending incoming requests.</p>';
 
-        renderFilteredFeed(allCommunityMembers);
-    } catch (error) {
-        console.error("Error loading feed:", error);
-    }
+        let outgoingHTML = "";
+        const outgoingSnap = await getDocs(query(collection(db, "likes"), where("fromUserId", "==", currentUser.uid)));
+        for (const docSnap of outgoingSnap.docs) {
+            const data = docSnap.data();
+            const userDoc = await getDoc(doc(db, "users", data.toUserId));
+            if (userDoc.exists()) {
+                const uData = userDoc.data();
+                outgoingHTML += 
+                    '<div class="flex items-center justify-between p-3 bg-gray-50 border rounded-xl">' +
+                    '<div class="flex items-center space-x-3">' +
+                    '<img src="' + (uData.photoURL || defaultAvatar) + '" class="w-12 h-12 rounded-full object-cover border-2 border-pink-500">' +
+                    '<div><h5 class="font-bold text-xs text-gray-800">' + (uData.name || 'Member') + '</h5><p class="text-[10px] text-gray-500 capitalize">Status: ' + data.status + '</p></div>' +
+                    '</div></div>';
+            }
+        }
+        outgoingRequestsContainer.innerHTML = outgoingHTML || '<p class="text-xs text-gray-400">No outgoing requests.</p>';
+    } catch (error) { console.error(error); }
 };
 
-if (loadMoreBtn) {
-    loadMoreBtn.addEventListener("click", () => {
-        loadUserLikesAndFeed(true);
-    });
-}
-    const loadMatches = async () => {
+const loadMatches = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
 
@@ -914,6 +857,7 @@ chatForm.addEventListener("submit", async (e) => {
         chatPreviewContainer?.classList.add("hidden");
     } catch (error) { alert("Error sending message: " + error.message); }
 });
+
 videoCallBtn.addEventListener("click", async () => {
     videoModal.classList.remove("hidden");
     try {
@@ -1150,7 +1094,7 @@ onAuthStateChanged(auth, async (user) => {
     } else {
         if (onlineStatusInterval) clearInterval(onlineStatusInterval);
         globalUnsubscribeListeners.forEach(unsub => unsub());
-        globalUnsubscribeListeners = [];
+        globalUnsequenceListeners = [];
         if (unsubscribeChat) unsubscribeChat();
         welcomeSection.classList.remove("hidden");
         authCard.classList.add("hidden");
