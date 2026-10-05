@@ -24,8 +24,6 @@ import {
     where,
     onSnapshot,
     orderBy,
-    limit,
-    startAfter,
     writeBatch
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -116,13 +114,11 @@ const endCallBtn = document.getElementById("end-call-btn");
 const localVideo = document.getElementById("local-video");
 const remoteVideo = document.getElementById("remote-video");
 
-// Search & Filter & Pagination
+// Search & Filter
 const searchNameInput = document.getElementById("search-name");
 const filterGoalSelect = document.getElementById("filter-goal");
-const loadMoreBtn = document.getElementById("load-more-btn");
-const loadMoreContainer = document.getElementById("load-more-container");
 
-let authMode = "login";
+let authMode = "login"; // "login", "signup-step1", "signup-step2", "forgot"
 let allCommunityMembers = [];
 let myLikesMap = new Map();
 let incomingLikesMap = new Map();
@@ -131,10 +127,6 @@ let currentChatUserId = null;
 let unsubscribeChat = null;
 let onlineStatusInterval = null;
 let globalUnsubscribeListeners = [];
-
-let lastVisibleDoc = null;
-const PAGE_SIZE = 10;
-let hasMoreProfiles = true;
 
 let peerConnection = null;
 let localStream = null;
@@ -215,7 +207,7 @@ authForm.addEventListener("submit", async (e) => {
             const tempPassword = Math.random().toString(36).slice(-8) + "Aa1!";
             const userCred = await createUserWithEmailAndPassword(auth, email, tempPassword);
             await sendEmailVerification(userCred.user);
-            alert("Verification email sent! Check your inbox, click the verification link, then come back and click continue.");
+            alert("Verification email sent! Please check your inbox, click the verification link and confirm 'Yes', then come back and click continue.");
             authCard.classList.add("hidden");
             verificationSection.classList.remove("hidden");
         } else if (authMode === "signup-step2") {
@@ -235,7 +227,8 @@ authForm.addEventListener("submit", async (e) => {
                     email: user.email,
                     createdAt: new Date().toISOString()
                 });
-                alert("Registration successful!");
+                alert("Registration successful! Welcome to MySugarPartner.");
+
                 await renderProfileCard(user.uid);
                 authCard.classList.add("hidden");
                 onboardingSection.classList.add("hidden");
@@ -245,7 +238,7 @@ authForm.addEventListener("submit", async (e) => {
             }
         } else if (authMode === "forgot") {
             await sendPasswordResetEmail(auth, email);
-            alert("Password reset link sent to your email!");
+            alert("Password reset link sent to your email! Check your inbox.");
             setAuthMode("login");
         }
     } catch (error) {
@@ -268,7 +261,7 @@ checkVerificationBtn.addEventListener("click", async () => {
         authCard.classList.add("hidden");
         setAuthMode("signup-step2");
     } else {
-        alert("Email is not verified yet. Please check your inbox first.");
+        alert("Email is not verified yet. Please click the verification link in your email first.");
     }
 });
 
@@ -331,91 +324,22 @@ const setupGlobalMessageListeners = async (uid) => {
                 unreadPerChat[matchId] = count;
 
                 let sum = 0;
-                for (let key in unreadPerChat) sum += unreadPerChat[key];
+                for (let key in unreadPerChat) {
+                    sum += unreadPerChat[key];
+                }
 
-                if (sum > 0) chatBadge.classList.remove("hidden");
-                else chatBadge.classList.add("hidden");
+                if (sum > 0) {
+                    chatBadge.classList.remove("hidden");
+                } else {
+                    chatBadge.classList.add("hidden");
+                }
             });
             globalUnsubscribeListeners.push(unsub);
         });
-    } catch (e) { console.error(e); }
-};
-
-const loadUserLikesAndFeed = async (isLoadMore = false) => {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return;
-
-    if (!isLoadMore) {
-        myLikesMap.clear();
-        incomingLikesMap.clear();
-        blockedUsersSet.clear();
-        allCommunityMembers = [];
-        lastVisibleDoc = null;
-        hasMoreProfiles = true;
-    }
-
-    if (!hasMoreProfiles && isLoadMore) return;
-
-    try {
-        if (!isLoadMore) {
-            const blocksSnap1 = await getDocs(query(collection(db, "blocks"), where("blockerId", "==", currentUser.uid)));
-            blocksSnap1.forEach(docSnap => blockedUsersSet.add(docSnap.data().blockedId));
-            const blocksSnap2 = await getDocs(query(collection(db, "blocks"), where("blockedId", "==", currentUser.uid)));
-            blocksSnap2.forEach(docSnap => blockedUsersSet.add(docSnap.data().blockerId));
-
-            const myLikesSnap = await getDocs(query(collection(db, "likes"), where("fromUserId", "==", currentUser.uid)));
-            myLikesSnap.forEach(docSnap => myLikesMap.set(docSnap.data().toUserId, docSnap.data().status));
-
-            const incomingSnap = await getDocs(query(collection(db, "likes"), where("toUserId", "==", currentUser.uid)));
-            incomingSnap.forEach(docSnap => incomingLikesMap.set(docSnap.data().fromUserId, { id: docSnap.id, ...docSnap.data() }));
-
-            let pendingIncomingCount = 0;
-            incomingLikesMap.forEach((val) => { if (val.status === "pending") pendingIncomingCount++; });
-            if (pendingIncomingCount > 0) requestsBadge.classList.remove("hidden");
-            else requestsBadge.classList.add("hidden");
-        }
-
-        let usersQuery = query(collection(db, "users"), orderBy("__name__"), limit(PAGE_SIZE));
-        if (isLoadMore && lastVisibleDoc) {
-            usersQuery = query(collection(db, "users"), orderBy("__name__"), startAfter(lastVisibleDoc), limit(PAGE_SIZE));
-        }
-
-        const querySnapshot = await getDocs(usersQuery);
-        
-        if (querySnapshot.empty) {
-            hasMoreProfiles = false;
-            if (loadMoreContainer) loadMoreContainer.classList.add("hidden");
-            return;
-        }
-
-        lastVisibleDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
-
-        if (querySnapshot.docs.length < PAGE_SIZE) {
-            hasMoreProfiles = false;
-            if (loadMoreContainer) loadMoreContainer.classList.add("hidden");
-        } else {
-            if (loadMoreContainer) loadMoreContainer.classList.remove("hidden");
-        }
-
-        querySnapshot.forEach((docSnap) => {
-            if (!blockedUsersSet.has(docSnap.id) && docSnap.id !== currentUser.uid) {
-                if (!allCommunityMembers.some(m => m.id === docSnap.id)) {
-                    allCommunityMembers.push({ id: docSnap.id, ...docSnap.data() });
-                }
-            }
-        });
-
-        renderFilteredFeed(allCommunityMembers);
-    } catch (error) {
-        console.error("Error loading feed:", error);
+    } catch (e) {
+        console.error(e);
     }
 };
-
-if (loadMoreBtn) {
-    loadMoreBtn.addEventListener("click", () => {
-        loadUserLikesAndFeed(true);
-    });
-}
 
 window.sendLikeRequest = async (targetUserId) => {
     const currentUser = auth.currentUser;
@@ -490,6 +414,45 @@ const renderProfileCard = async (uid) => {
             '<p><span class="font-semibold text-gray-700">Country:</span> ' + (data.country || 'Not specified') + '</p>' +
             '<p><span class="font-semibold text-gray-700">Hobbies:</span> ' + (data.hobbies || 'Not specified') + '</p>' +
             '</div></div></div>';
+    }
+};
+
+const loadUserLikesAndFeed = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    myLikesMap.clear();
+    incomingLikesMap.clear();
+    blockedUsersSet.clear();
+
+    try {
+        const blocksSnap1 = await getDocs(query(collection(db, "blocks"), where("blockerId", "==", currentUser.uid)));
+        blocksSnap1.forEach(docSnap => blockedUsersSet.add(docSnap.data().blockedId));
+        const blocksSnap2 = await getDocs(query(collection(db, "blocks"), where("blockedId", "==", currentUser.uid)));
+        blocksSnap2.forEach(docSnap => blockedUsersSet.add(docSnap.data().blockerId));
+
+        const myLikesSnap = await getDocs(query(collection(db, "likes"), where("fromUserId", "==", currentUser.uid)));
+        myLikesSnap.forEach(docSnap => myLikesMap.set(docSnap.data().toUserId, docSnap.data().status));
+
+        const incomingSnap = await getDocs(query(collection(db, "likes"), where("toUserId", "==", currentUser.uid)));
+        incomingSnap.forEach(docSnap => incomingLikesMap.set(docSnap.data().fromUserId, { id: docSnap.id, ...docSnap.data() }));
+
+        let pendingIncomingCount = 0;
+        incomingLikesMap.forEach((val) => { if (val.status === "pending") pendingIncomingCount++; });
+        if (pendingIncomingCount > 0) requestsBadge.classList.remove("hidden");
+        else requestsBadge.classList.add("hidden");
+
+        const querySnapshot = await getDocs(collection(db, "users"));
+        allCommunityMembers = [];
+        querySnapshot.forEach((docSnap) => {
+            if (!blockedUsersSet.has(docSnap.id) && docSnap.id !== currentUser.uid) {
+                allCommunityMembers.push({ id: docSnap.id, ...docSnap.data() });
+            }
+        });
+
+        renderFilteredFeed(allCommunityMembers);
+    } catch (error) {
+        console.error(error);
     }
 };
 
@@ -631,7 +594,9 @@ const loadRequestsTab = async () => {
             }
         }
         outgoingRequestsContainer.innerHTML = outgoingHTML || '<p class="text-xs text-gray-400">No outgoing requests.</p>';
-    } catch (error) { console.error(error); }
+    } catch (error) {
+        console.error(error);
+    }
 };
 
 const loadMatches = async () => {
@@ -656,6 +621,7 @@ const loadMatches = async () => {
         }
 
         let listHTML = "";
+        
         for (const matchId of mutualMatchIds) {
             const userDoc = await getDoc(doc(db, "users", matchId));
             if (userDoc.exists()) {
@@ -672,7 +638,9 @@ const loadMatches = async () => {
                 snapshot.forEach(docSnap => {
                     const msg = docSnap.data();
                     const deletedForMe = msg.deletedFor && msg.deletedFor.includes(currentUser.uid);
-                    if (msg.senderId === matchId && msg.read === false && !deletedForMe) unreadCount++;
+                    if (msg.senderId === matchId && msg.read === false && !deletedForMe) {
+                        unreadCount++;
+                    }
                 });
 
                 const badgeHTML = unreadCount > 0 
@@ -696,7 +664,7 @@ const loadMatches = async () => {
 
 window.clearChatHistory = async () => {
     if (!currentChatUserId) return;
-    if (!confirm("Are you sure you want to clear your chat history?")) return;
+    if (!confirm("Are you sure you want to clear your chat history? This will only clear it on your screen.")) return;
 
     const currentUser = auth.currentUser;
     const roomId = [currentUser.uid, currentChatUserId].sort().join("_");
@@ -741,13 +709,28 @@ window.openChat = async (matchId, matchName) => {
 
     if (unsubscribeChat) unsubscribeChat();
 
+    try {
+        const unreadSnap = await getDocs(query(messagesRef, where("senderId", "==", matchId), where("read", "==", false)));
+        unreadSnap.forEach(async (msgDoc) => {
+            const data = msgDoc.data();
+            if (!data.deletedFor || !data.deletedFor.includes(currentUser.uid)) {
+                await updateDoc(doc(db, "chats", roomId, "messages", msgDoc.id), { read: true });
+            }
+        });
+    } catch (e) {
+        console.error(e);
+    }
+
     unsubscribeChat = onSnapshot(q, async (snapshot) => {
         let messagesHTML = "";
         const batchUpdates = [];
 
         snapshot.forEach((docSnap) => {
             const msg = docSnap.data();
-            if (msg.deletedFor && msg.deletedFor.includes(currentUser.uid)) return;
+
+            if (msg.deletedFor && msg.deletedFor.includes(currentUser.uid)) {
+                return;
+            }
 
             const isMe = msg.senderId === currentUser.uid;
             const bubbleClass = isMe ? "bg-pink-600 text-white ml-auto rounded-l-xl rounded-tr-xl" : "bg-white text-gray-800 border mr-auto rounded-r-xl rounded-tl-xl";
@@ -766,8 +749,13 @@ window.openChat = async (matchId, matchName) => {
             let contentHTML = '<p>' + (msg.text || '') + '</p>';
             if (msg.fileData) {
                 const downloadBtn = '<a href="' + msg.fileData + '" download="' + (msg.fileName || 'saved-file') + '" class="inline-flex items-center mt-2 px-2.5 py-1 bg-black/20 hover:bg-black/30 text-white text-[10px] font-bold rounded-lg transition">⬇ Save File</a>';
+                
                 if (msg.fileType && msg.fileType.startsWith('image/')) {
                     contentHTML += '<div class="mt-2"><img src="' + msg.fileData + '" class="max-w-xs rounded-lg max-h-48 object-cover"><br>' + downloadBtn + '</div>';
+                } else if (msg.fileType && msg.fileType.startsWith('video/')) {
+                    contentHTML += '<div class="mt-2"><video controls class="max-w-xs rounded-lg max-h-48"><source src="' + msg.fileData + '"></video><br>' + downloadBtn + '</div>';
+                } else if (msg.fileType && msg.fileType.startsWith('audio/')) {
+                    contentHTML += '<div class="mt-2"><audio controls class="w-full"><source src="' + msg.fileData + '"></audio><br>' + downloadBtn + '</div>';
                 } else {
                     contentHTML += '<div class="mt-2"><p class="text-xs font-semibold">📎 ' + (msg.fileName || 'Document') + '</p>' + downloadBtn + '</div>';
                 }
@@ -776,7 +764,9 @@ window.openChat = async (matchId, matchName) => {
             messagesHTML += '<div class="max-w-[75%] p-3 rounded-xl shadow-sm text-xs ' + bubbleClass + '">' + contentHTML + '<div class="text-right">' + receiptHTML + '</div></div>';
         });
 
-        if (batchUpdates.length > 0) await Promise.all(batchUpdates);
+        if (batchUpdates.length > 0) {
+            await Promise.all(batchUpdates);
+        }
 
         chatMessages.innerHTML = messagesHTML || '<p class="text-center text-gray-400 text-xs mt-10">Say hello! 👋</p>';
         chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -834,7 +824,39 @@ chatForm.addEventListener("submit", async (e) => {
         fileData = await new Promise((resolve) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
-            reader.onload = (event) => { resolve(event.target.result); };
+            reader.onload = (event) => {
+                if (file.type.startsWith('image/')) {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        const MAX_WIDTH = 800;
+                        const MAX_HEIGHT = 800;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width *= MAX_HEIGHT / height;
+                                height = MAX_HEIGHT;
+                            }
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext("2d");
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL("image/jpeg", 0.7));
+                    };
+                } else {
+                    resolve(event.target.result);
+                }
+            };
         });
         fileName = file.name;
         fileType = file.type;
@@ -855,7 +877,11 @@ chatForm.addEventListener("submit", async (e) => {
         chatInput.value = "";
         chatFileInput.value = "";
         chatPreviewContainer?.classList.add("hidden");
-    } catch (error) { alert("Error sending message: " + error.message); }
+        if (chatImgPreview) chatImgPreview.src = "";
+        if (chatFileNamePreview) chatFileNamePreview.textContent = "";
+    } catch (error) {
+        alert("Error sending message: " + error.message);
+    }
 });
 
 videoCallBtn.addEventListener("click", async () => {
@@ -863,10 +889,12 @@ videoCallBtn.addEventListener("click", async () => {
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localVideo.srcObject = localStream;
+
         peerConnection = new RTCPeerConnection(servers);
         localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
         peerConnection.ontrack = (event) => { remoteVideo.srcObject = event.streams[0]; };
-        
+
         const currentUser = auth.currentUser;
         const roomId = [currentUser.uid, currentChatUserId].sort().join("_");
         const callDocRef = doc(db, "calls", roomId);
@@ -885,7 +913,7 @@ videoCallBtn.addEventListener("click", async () => {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
             }
             if (data && data.candidate && peerConnection) {
-                try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) {}
+                try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { console.error(e); }
             }
         });
     } catch (err) {
@@ -973,19 +1001,21 @@ editProfileBtn.addEventListener("click", async () => {
         }
         dashboardSection.classList.add("hidden");
         onboardingSection.classList.remove("hidden");
-    } catch (err) { alert("Error loading profile: " + err.message); }
+    } catch (err) {
+        alert("Error loading profile: " + err.message);
+    }
 });
 
 deleteAccountBtn.addEventListener("click", async () => {
     const user = auth.currentUser;
     if (!user) return;
-    if (!confirm("Are you sure you want to delete your account? This is permanent.")) return;
+    if (!confirm("Are you sure you want to delete your account? This action is permanent and frees up your email address.")) return;
 
     try {
         await deleteDoc(doc(db, "users", user.uid));
         await deleteDoc(doc(db, "presence", user.uid)).catch(() => {});
         await deleteUser(user);
-        alert("Your account has been successfully deleted.");
+        alert("Your account has been successfully deleted. You can now use this email to create a fresh account.");
     } catch (error) {
         if (error.code === 'auth/requires-recent-login') {
             alert("For security reasons, please log out and log back in before deleting your account.");
@@ -1020,7 +1050,35 @@ onboardingForm.addEventListener("submit", async (e) => {
             photoURL = await new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.readAsDataURL(file);
-                reader.onload = (event) => { resolve(event.target.result); };
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        const MAX_WIDTH = 400;
+                        const MAX_HEIGHT = 400;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width *= MAX_HEIGHT / height;
+                                height = MAX_HEIGHT;
+                            }
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext("2d");
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL("image/jpeg", 0.7));
+                    };
+                };
             });
         } else {
             const existingDoc = await getDoc(doc(db, "users", user.uid));
@@ -1051,7 +1109,9 @@ onboardingForm.addEventListener("submit", async (e) => {
         onboardingSection.classList.add("hidden");
         dashboardSection.classList.remove("hidden");
         setupGlobalMessageListeners(user.uid);
-    } catch (error) { alert("Error saving profile: " + error.message); }
+    } catch (error) {
+        alert("Error saving profile: " + error.message);
+    }
 });
 
 logoutBtn.addEventListener("click", async () => {
@@ -1094,7 +1154,7 @@ onAuthStateChanged(auth, async (user) => {
     } else {
         if (onlineStatusInterval) clearInterval(onlineStatusInterval);
         globalUnsubscribeListeners.forEach(unsub => unsub());
-        globalUnsequenceListeners = [];
+        globalUnsubscribeListeners = [];
         if (unsubscribeChat) unsubscribeChat();
         welcomeSection.classList.remove("hidden");
         authCard.classList.add("hidden");
