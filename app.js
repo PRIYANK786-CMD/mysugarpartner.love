@@ -292,7 +292,6 @@ const isUserOnline = (lastSeenString) => {
     return (new Date().getTime() - new Date(lastSeenString).getTime()) < 60000;
 };
 
-// Global Listeners to check for unread messages across all matches
 const setupGlobalMessageListeners = async (uid) => {
     globalUnsubscribeListeners.forEach(unsub => unsub());
     globalUnsubscribeListeners = [];
@@ -984,19 +983,27 @@ tabMatchesBtn.addEventListener("click", () => {
 editProfileBtn.addEventListener("click", async () => {
     const user = auth.currentUser;
     if (!user) return;
-    const userDoc = await getDoc(doc(db, "users", user.uid));
-    if (userDoc.exists()) {
-        const data = userDoc.data();
-        document.getElementById("profile-name").value = data.name || "";
-        document.getElementById("profile-age").value = data.age || "";
-        document.getElementById("profile-t1d-history").value = data.t1dHistory || "";
-        document.getElementById("profile-complications").value = data.complications || "";
-        document.getElementById("profile-goal").value = data.relationshipGoal || "Dating";
-        document.getElementById("profile-country").value = data.country || "";
-        document.getElementById("profile-hobbies").value = data.hobbies || "";
+    try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+            const data = userDoc.data();
+            const setVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.value = val !== undefined && val !== null ? val : "";
+            };
+            setVal("profile-name", data.name);
+            setVal("profile-age", data.age);
+            setVal("profile-t1d-history", data.t1dHistory);
+            setVal("profile-complications", data.complications);
+            setVal("profile-goal", data.relationshipGoal || "Dating");
+            setVal("profile-country", data.country);
+            setVal("profile-hobbies", data.hobbies);
+        }
+        dashboardSection.classList.add("hidden");
+        onboardingSection.classList.remove("hidden");
+    } catch (err) {
+        alert("Error loading profile: " + err.message);
     }
-    dashboardSection.classList.add("hidden");
-    onboardingSection.classList.remove("hidden");
 });
 
 deleteAccountBtn.addEventListener("click", async () => {
@@ -1010,7 +1017,11 @@ deleteAccountBtn.addEventListener("click", async () => {
         await deleteUser(user);
         alert("Your account has been successfully deleted. You can now use this email to create a fresh account.");
     } catch (error) {
-        alert("Error deleting account: " + error.message);
+        if (error.code === 'auth/requires-recent-login') {
+            alert("For security reasons, please log out and log back in before deleting your account.");
+        } else {
+            alert("Error deleting account: " + error.message);
+        }
     }
 });
 
@@ -1019,7 +1030,8 @@ onboardingForm.addEventListener("submit", async (e) => {
     const user = auth.currentUser;
     if (!user) return;
 
-    const file = document.getElementById("profile-pic").files[0];
+    const fileInput = document.getElementById("profile-pic");
+    const file = fileInput && fileInput.files ? fileInput.files[0] : null;
     let photoURL = "";
 
     const newPasswordInput = document.getElementById("edit-new-password");
@@ -1073,27 +1085,32 @@ onboardingForm.addEventListener("submit", async (e) => {
             if (existingDoc.exists()) photoURL = existingDoc.data().photoURL || "";
         }
 
+        const getVal = (id) => {
+            const el = document.getElementById(id);
+            return el ? el.value : "";
+        };
+
         const profileData = {
-            name: document.getElementById("profile-name").value,
-            age: Number(document.getElementById("profile-age").value),
-            t1dHistory: document.getElementById("profile-t1d-history").value,
-            complications: document.getElementById("profile-complications").value,
-            relationshipGoal: document.getElementById("profile-goal").value,
-            country: document.getElementById("profile-country").value,
-            hobbies: document.getElementById("profile-hobbies").value,
+            name: getVal("profile-name"),
+            age: Number(getVal("profile-age")) || 0,
+            t1dHistory: getVal("profile-t1d-history"),
+            complications: getVal("profile-complications"),
+            relationshipGoal: getVal("profile-goal") || "Dating",
+            country: getVal("profile-country"),
+            hobbies: getVal("profile-hobbies"),
             photoURL: photoURL,
             email: user.email,
             createdAt: new Date().toISOString()
         };
 
-        await setDoc(doc(db, "users", user.uid), profileData);
+        await setDoc(doc(db, "users", user.uid), profileData, { merge: true });
         alert("Profile saved successfully!");
         await renderProfileCard(user.uid);
         onboardingSection.classList.add("hidden");
         dashboardSection.classList.remove("hidden");
         setupGlobalMessageListeners(user.uid);
     } catch (error) {
-        alert("Error: " + error.message);
+        alert("Error saving profile: " + error.message);
     }
 });
 
@@ -1101,6 +1118,7 @@ logoutBtn.addEventListener("click", async () => {
     if (onlineStatusInterval) clearInterval(onlineStatusInterval);
     globalUnsubscribeListeners.forEach(unsub => unsub());
     globalUnsubscribeListeners = [];
+    if (unsubscribeChat) unsubscribeChat();
     await signOut(auth);
 });
 
@@ -1137,6 +1155,7 @@ onAuthStateChanged(auth, async (user) => {
         if (onlineStatusInterval) clearInterval(onlineStatusInterval);
         globalUnsubscribeListeners.forEach(unsub => unsub());
         globalUnsubscribeListeners = [];
+        if (unsubscribeChat) unsubscribeChat();
         welcomeSection.classList.remove("hidden");
         authCard.classList.add("hidden");
         verificationSection.classList.add("hidden");
