@@ -23,7 +23,8 @@ import {
     query,
     where,
     onSnapshot,
-    orderBy
+    orderBy,
+    writeBatch
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -658,9 +659,37 @@ const loadMatches = async () => {
     }
 };
 
+window.clearChatHistory = async () => {
+    if (!currentChatUserId) return;
+    if (!confirm("Are you sure you want to clear the entire chat history for this conversation?")) return;
+
+    const currentUser = auth.currentUser;
+    const roomId = [currentUser.uid, currentChatUserId].sort().join("_");
+    const messagesRef = collection(db, "chats", roomId, "messages");
+
+    try {
+        const snapshot = await getDocs(messagesRef);
+        const batch = writeBatch(db);
+        snapshot.forEach((docSnap) => {
+            batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+        alert("Chat history cleared successfully.");
+    } catch (error) {
+        alert("Error clearing chat: " + error.message);
+    }
+};
+
 window.openChat = async (matchId, matchName) => {
     currentChatUserId = matchId;
-    chatHeader.textContent = "Chat with " + matchName;
+    
+    // Render Chat Header with Clear History button
+    chatHeader.innerHTML = 
+        '<div class="flex justify-between items-center w-full">' +
+        '<span>Chat with ' + matchName + '</span>' +
+        '<button onclick="window.clearChatHistory()" class="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 text-[10px] font-bold rounded-lg transition">Clear History</button>' +
+        '</div>';
+
     chatForm.classList.remove("hidden");
     videoCallBtn.classList.remove("hidden");
 
@@ -693,19 +722,30 @@ window.openChat = async (matchId, matchName) => {
                 batchUpdates.push(updateDoc(doc(db, "chats", roomId, "messages", docSnap.id), { read: true }));
             }
 
+            // WhatsApp style receipt tick indicator
+            let receiptHTML = "";
+            if (isMe) {
+                const tickColor = msg.read ? "text-cyan-200" : "text-white/70";
+                const ticks = msg.read ? "✓✓" : "✓";
+                receiptHTML = '<span class="ml-2 text-[10px] font-bold ' + tickColor + '">' + ticks + '</span>';
+            }
+
             let contentHTML = '<p>' + (msg.text || '') + '</p>';
             if (msg.fileData) {
+                const downloadBtn = '<a href="' + msg.fileData + '" download="' + (msg.fileName || 'saved-file') + '" class="inline-flex items-center mt-2 px-2.5 py-1 bg-black/20 hover:bg-black/30 text-white text-[10px] font-bold rounded-lg transition">⬇ Save File</a>';
+                
                 if (msg.fileType && msg.fileType.startsWith('image/')) {
-                    contentHTML += '<img src="' + msg.fileData + '" class="mt-2 max-w-xs rounded-lg max-h-48 object-cover">';
+                    contentHTML += '<div class="mt-2"><img src="' + msg.fileData + '" class="max-w-xs rounded-lg max-h-48 object-cover"><br>' + downloadBtn + '</div>';
                 } else if (msg.fileType && msg.fileType.startsWith('video/')) {
-                    contentHTML += '<video controls class="mt-2 max-w-xs rounded-lg max-h-48"><source src="' + msg.fileData + '"></video>';
+                    contentHTML += '<div class="mt-2"><video controls class="max-w-xs rounded-lg max-h-48"><source src="' + msg.fileData + '"></video><br>' + downloadBtn + '</div>';
                 } else if (msg.fileType && msg.fileType.startsWith('audio/')) {
-                    contentHTML += '<audio controls class="mt-2 w-full"><source src="' + msg.fileData + '"></audio>';
+                    contentHTML += '<div class="mt-2"><audio controls class="w-full"><source src="' + msg.fileData + '"></audio><br>' + downloadBtn + '</div>';
                 } else {
-                    contentHTML += '<a href="' + msg.fileData + '" download="' + (msg.fileName || 'file') + '" class="block mt-2 underline font-bold text-xs">Download: ' + (msg.fileName || 'File') + '</a>';
+                    contentHTML += '<div class="mt-2"><p class="text-xs font-semibold">📎 ' + (msg.fileName || 'Document') + '</p>' + downloadBtn + '</div>';
                 }
             }
-            messagesHTML += '<div class="max-w-[75%] p-3 rounded-xl shadow-sm text-xs ' + bubbleClass + '">' + contentHTML + '</div>';
+
+            messagesHTML += '<div class="max-w-[75%] p-3 rounded-xl shadow-sm text-xs ' + bubbleClass + '">' + contentHTML + '<div class="text-right">' + receiptHTML + '</div></div>';
         });
 
         if (batchUpdates.length > 0) {
