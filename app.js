@@ -24,7 +24,6 @@ import {
     where,
     onSnapshot,
     orderBy,
-    limit,
     writeBatch
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -119,7 +118,7 @@ const remoteVideo = document.getElementById("remote-video");
 const searchNameInput = document.getElementById("search-name");
 const filterGoalSelect = document.getElementById("filter-goal");
 
-let authMode = "login";
+let authMode = "login"; // "login", "signup-step1", "signup-step2", "forgot"
 let allCommunityMembers = [];
 let myLikesMap = new Map();
 let incomingLikesMap = new Map();
@@ -132,6 +131,7 @@ let globalUnsubscribeListeners = [];
 let peerConnection = null;
 let localStream = null;
 const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
 const setAuthMode = (mode) => {
     authMode = mode;
     forgotPasswordLink.classList.add("hidden");
@@ -292,6 +292,7 @@ const isUserOnline = (lastSeenString) => {
     return (new Date().getTime() - new Date(lastSeenString).getTime()) < 60000;
 };
 
+// Global Listeners to check for unread messages across all matches
 const setupGlobalMessageListeners = async (uid) => {
     globalUnsubscribeListeners.forEach(unsub => unsub());
     globalUnsubscribeListeners = [];
@@ -535,6 +536,7 @@ const renderFilteredFeed = (members) => {
 
     communityFeedContainer.innerHTML = feedHTML || '<p class="text-center text-gray-500 col-span-2">No members found.</p>';
 };
+
 window.respondToRequest = async (fromUserId, status) => {
     try {
         const likeId = fromUserId + "_" + auth.currentUser.uid;
@@ -689,7 +691,6 @@ window.clearChatHistory = async () => {
     }
 };
 
-// OPTIMIZED FAST PAGINATED CHAT OPENER
 window.openChat = async (matchId, matchName) => {
     currentChatUserId = matchId;
     
@@ -705,9 +706,7 @@ window.openChat = async (matchId, matchName) => {
     const currentUser = auth.currentUser;
     const roomId = [currentUser.uid, matchId].sort().join("_");
     const messagesRef = collection(db, "chats", roomId, "messages");
-    
-    // Only loads latest 25 messages for blazing speed
-    const q = query(messagesRef, orderBy("timestamp", "desc"), limit(25));
+    const q = query(messagesRef, orderBy("timestamp", "asc"));
 
     if (unsubscribeChat) unsubscribeChat();
 
@@ -726,11 +725,8 @@ window.openChat = async (matchId, matchName) => {
     unsubscribeChat = onSnapshot(q, async (snapshot) => {
         let messagesHTML = "";
         const batchUpdates = [];
-        const docsArray = [];
 
-        snapshot.forEach((docSnap) => { docsArray.unshift(docSnap); });
-
-        docsArray.forEach((docSnap) => {
+        snapshot.forEach((docSnap) => {
             const msg = docSnap.data();
 
             if (msg.deletedFor && msg.deletedFor.includes(currentUser.uid)) {
@@ -777,6 +773,7 @@ window.openChat = async (matchId, matchName) => {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     });
 };
+
 if (chatFileInput) {
     chatFileInput.addEventListener("change", () => {
         const file = chatFileInput.files[0];
@@ -833,22 +830,29 @@ chatForm.addEventListener("submit", async (e) => {
                     const img = new Image();
                     img.src = event.target.result;
                     img.onload = () => {
-                        const canvas = document.createElement('canvas');
+                        const canvas = document.createElement("canvas");
+                        const MAX_WIDTH = 800;
+                        const MAX_HEIGHT = 800;
                         let width = img.width;
                         let height = img.height;
-                        const max_size = 800;
-                        if (width > height && width > max_size) {
-                            height *= max_size / width;
-                            width = max_size;
-                        } else if (height > max_size) {
-                            width *= max_size / height;
-                            height = max_size;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width *= MAX_HEIGHT / height;
+                                height = MAX_HEIGHT;
+                            }
                         }
+
                         canvas.width = width;
                         canvas.height = height;
-                        const ctx = canvas.getContext('2d');
+                        const ctx = canvas.getContext("2d");
                         ctx.drawImage(img, 0, 0, width, height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                        resolve(canvas.toDataURL("image/jpeg", 0.7));
                     };
                 } else {
                     resolve(event.target.result);
@@ -860,21 +864,19 @@ chatForm.addEventListener("submit", async (e) => {
     }
 
     const roomId = [currentUser.uid, currentChatUserId].sort().join("_");
-    const messagesRef = collection(db, "chats", roomId, "messages");
-
     try {
-        await addDoc(messagesRef, {
+        await addDoc(collection(db, "chats", roomId, "messages"), {
             senderId: currentUser.uid,
             text: text,
             fileData: fileData,
             fileName: fileName,
             fileType: fileType,
             read: false,
+            deletedFor: [],
             timestamp: new Date().toISOString()
         });
-
         chatInput.value = "";
-        if (chatFileInput) chatFileInput.value = "";
+        chatFileInput.value = "";
         chatPreviewContainer?.classList.add("hidden");
         if (chatImgPreview) chatImgPreview.src = "";
         if (chatFileNamePreview) chatFileNamePreview.textContent = "";
@@ -883,70 +885,59 @@ chatForm.addEventListener("submit", async (e) => {
     }
 });
 
-// Video Call WebRTC Handlers
 videoCallBtn.addEventListener("click", async () => {
-    if (!currentChatUserId) return;
     videoModal.classList.remove("hidden");
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localVideo.srcObject = localStream;
-        
-        const roomId = [auth.currentUser.uid, currentChatUserId].sort().join("_");
+
         peerConnection = new RTCPeerConnection(servers);
-        
         localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-        
-        peerConnection.ontrack = (event) => {
-            remoteVideo.srcObject = event.streams[0];
-        };
+
+        peerConnection.ontrack = (event) => { remoteVideo.srcObject = event.streams[0]; };
+
+        const currentUser = auth.currentUser;
+        const roomId = [currentUser.uid, currentChatUserId].sort().join("_");
+        const callDocRef = doc(db, "calls", roomId);
 
         peerConnection.onicecandidate = async (event) => {
-            if (event.candidate) {
-                await addDoc(collection(db, "calls", roomId, "candidates"), event.candidate.toJSON());
-            }
+            if (event.candidate) await setDoc(callDocRef, { candidate: event.candidate.toJSON() }, { merge: true });
         };
 
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        await setDoc(doc(db, "calls", roomId), { offer: { type: offer.type, sdp: offer.sdp } });
+        await setDoc(callDocRef, { offer: { type: offer.type, sdp: offer.sdp } });
 
-        onSnapshot(doc(db, "calls", roomId), async (snapshot) => {
+        onSnapshot(callDocRef, async (snapshot) => {
             const data = snapshot.data();
             if (data && data.answer && !peerConnection.currentRemoteDescription) {
-                const answer = new RTCSessionDescription(data.answer);
-                await peerConnection.setRemoteDescription(answer);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            }
+            if (data && data.candidate && peerConnection) {
+                try { await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) { console.error(e); }
             }
         });
-
-        const candidatesRef = collection(db, "calls", roomId, "remoteCandidates");
-        onSnapshot(candidatesRef, (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                if (change.type === "added") {
-                    let candidate = new RTCIceCandidate(change.doc.data());
-                    await peerConnection.addIceCandidate(candidate);
-                }
-            });
-        });
-
     } catch (err) {
-        console.error(err);
-        alert("Could not start video call. Check camera permissions.");
+        alert("Camera error: " + err.message);
         videoModal.classList.add("hidden");
     }
 });
 
 endCallBtn.addEventListener("click", () => {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-    }
-    if (peerConnection) {
-        peerConnection.close();
-    }
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
+    if (peerConnection) peerConnection.close();
+    peerConnection = null;
     videoModal.classList.add("hidden");
 });
 
-// Navigation Tabs
+searchNameInput.addEventListener("input", () => renderFilteredFeed(allCommunityMembers));
+filterGoalSelect.addEventListener("change", () => renderFilteredFeed(allCommunityMembers));
+
 tabProfileBtn.addEventListener("click", () => {
+    tabProfileBtn.className = "px-4 py-2 bg-pink-600 text-white rounded-lg font-semibold shadow transition text-xs sm:text-sm";
+    tabFeedBtn.className = "px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabRequestsBtn.className = "relative px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabMatchesBtn.className = "relative px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
     profileTabContent.classList.remove("hidden");
     feedTabContent.classList.add("hidden");
     requestsTabContent.classList.add("hidden");
@@ -954,64 +945,204 @@ tabProfileBtn.addEventListener("click", () => {
 });
 
 tabFeedBtn.addEventListener("click", () => {
-    profileTabContent.classList.add("hidden");
+    tabFeedBtn.className = "px-4 py-2 bg-pink-600 text-white rounded-lg font-semibold shadow transition text-xs sm:text-sm";
+    tabProfileBtn.className = "px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabRequestsBtn.className = "relative px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabMatchesBtn.className = "relative px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
     feedTabContent.classList.remove("hidden");
+    profileTabContent.classList.add("hidden");
     requestsTabContent.classList.add("hidden");
     matchesTabContent.classList.add("hidden");
     loadUserLikesAndFeed();
 });
 
 tabRequestsBtn.addEventListener("click", () => {
+    tabRequestsBtn.className = "px-4 py-2 bg-pink-600 text-white rounded-lg font-semibold shadow transition text-xs sm:text-sm";
+    tabProfileBtn.className = "px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabFeedBtn.className = "px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabMatchesBtn.className = "relative px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    requestsTabContent.classList.remove("hidden");
     profileTabContent.classList.add("hidden");
     feedTabContent.classList.add("hidden");
-    requestsTabContent.classList.remove("hidden");
     matchesTabContent.classList.add("hidden");
+    requestsBadge.classList.add("hidden");
     loadRequestsTab();
 });
 
 tabMatchesBtn.addEventListener("click", () => {
+    tabMatchesBtn.className = "px-4 py-2 bg-pink-600 text-white rounded-lg font-semibold shadow transition text-xs sm:text-sm";
+    tabProfileBtn.className = "px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabFeedBtn.className = "px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    tabRequestsBtn.className = "relative px-4 py-2 bg-white text-pink-600 border border-pink-600 rounded-lg font-semibold shadow transition text-xs sm:text-sm hover:bg-pink-50";
+    matchesTabContent.classList.remove("hidden");
     profileTabContent.classList.add("hidden");
     feedTabContent.classList.add("hidden");
     requestsTabContent.classList.add("hidden");
-    matchesTabContent.classList.remove("hidden");
     loadMatches();
 });
 
-searchNameInput.addEventListener("input", () => renderFilteredFeed(allCommunityMembers));
-filterGoalSelect.addEventListener("change", () => renderFilteredFeed(allCommunityMembers));
+editProfileBtn.addEventListener("click", async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const userDoc = await getDoc(doc(db, "users", user.uid));
+    if (userDoc.exists()) {
+        const data = userDoc.data();
+        document.getElementById("profile-name").value = data.name || "";
+        document.getElementById("profile-age").value = data.age || "";
+        document.getElementById("profile-t1d-history").value = data.t1dHistory || "";
+        document.getElementById("profile-complications").value = data.complications || "";
+        document.getElementById("profile-goal").value = data.relationshipGoal || "Dating";
+        document.getElementById("profile-country").value = data.country || "";
+        document.getElementById("profile-hobbies").value = data.hobbies || "";
+    }
+    dashboardSection.classList.add("hidden");
+    onboardingSection.classList.remove("hidden");
+});
+
+deleteAccountBtn.addEventListener("click", async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    if (!confirm("Are you sure you want to delete your account? This action is permanent and frees up your email address.")) return;
+
+    try {
+        await deleteDoc(doc(db, "users", user.uid));
+        await deleteDoc(doc(db, "presence", user.uid)).catch(() => {});
+        await deleteUser(user);
+        alert("Your account has been successfully deleted. You can now use this email to create a fresh account.");
+    } catch (error) {
+        alert("Error deleting account: " + error.message);
+    }
+});
+
+onboardingForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const file = document.getElementById("profile-pic").files[0];
+    let photoURL = "";
+
+    const newPasswordInput = document.getElementById("edit-new-password");
+    if (newPasswordInput && newPasswordInput.value.trim() !== "") {
+        try {
+            await updatePassword(user, newPasswordInput.value.trim());
+            newPasswordInput.value = "";
+        } catch (err) {
+            alert("Password update failed: " + err.message);
+            return;
+        }
+    }
+
+    try {
+        if (file) {
+            photoURL = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        const MAX_WIDTH = 400;
+                        const MAX_HEIGHT = 400;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width *= MAX_HEIGHT / height;
+                                height = MAX_HEIGHT;
+                            }
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext("2d");
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL("image/jpeg", 0.7));
+                    };
+                };
+            });
+        } else {
+            const existingDoc = await getDoc(doc(db, "users", user.uid));
+            if (existingDoc.exists()) photoURL = existingDoc.data().photoURL || "";
+        }
+
+        const profileData = {
+            name: document.getElementById("profile-name").value,
+            age: Number(document.getElementById("profile-age").value),
+            t1dHistory: document.getElementById("profile-t1d-history").value,
+            complications: document.getElementById("profile-complications").value,
+            relationshipGoal: document.getElementById("profile-goal").value,
+            country: document.getElementById("profile-country").value,
+            hobbies: document.getElementById("profile-hobbies").value,
+            photoURL: photoURL,
+            email: user.email,
+            createdAt: new Date().toISOString()
+        };
+
+        await setDoc(doc(db, "users", user.uid), profileData);
+        alert("Profile saved successfully!");
+        await renderProfileCard(user.uid);
+        onboardingSection.classList.add("hidden");
+        dashboardSection.classList.remove("hidden");
+        setupGlobalMessageListeners(user.uid);
+    } catch (error) {
+        alert("Error: " + error.message);
+    }
+});
 
 logoutBtn.addEventListener("click", async () => {
     if (onlineStatusInterval) clearInterval(onlineStatusInterval);
     globalUnsubscribeListeners.forEach(unsub => unsub());
+    globalUnsubscribeListeners = [];
     await signOut(auth);
-    dashboardSection.classList.add("hidden");
-    welcomeSection.classList.remove("hidden");
 });
 
-// App State Observer
 onAuthStateChanged(auth, async (user) => {
     if (user) {
+        await user.reload();
+        startOnlineHeartbeat(user.uid);
+        setupGlobalMessageListeners(user.uid);
         welcomeSection.classList.add("hidden");
         authCard.classList.add("hidden");
         verificationSection.classList.add("hidden");
-        
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
+
+        if (!user.emailVerified) {
+            verificationSection.classList.remove("hidden");
             onboardingSection.classList.add("hidden");
-            dashboardSection.classList.remove("hidden");
-            await renderProfileCard(user.uid);
-            loadUserLikesAndFeed();
-            setupGlobalMessageListeners(user.uid);
-            startOnlineHeartbeat(user.uid);
-        } else {
-            onboardingSection.classList.remove("hidden");
             dashboardSection.classList.add("hidden");
+            logoutBtn.classList.remove("hidden");
+            userEmailDisplay.textContent = user.email;
+        } else {
+            logoutBtn.classList.remove("hidden");
+            userEmailDisplay.textContent = user.email;
+
+            const userDoc = await getDoc(doc(db, "users", user.uid));
+            if (userDoc.exists()) {
+                await renderProfileCard(user.uid);
+                onboardingSection.classList.add("hidden");
+                dashboardSection.classList.remove("hidden");
+            } else {
+                dashboardSection.classList.add("hidden");
+                onboardingSection.classList.remove("hidden");
+            }
         }
     } else {
         if (onlineStatusInterval) clearInterval(onlineStatusInterval);
         globalUnsubscribeListeners.forEach(unsub => unsub());
-        dashboardSection.classList.add("hidden");
-        onboardingSection.classList.add("hidden");
+        globalUnsubscribeListeners = [];
         welcomeSection.classList.remove("hidden");
+        authCard.classList.add("hidden");
+        verificationSection.classList.add("hidden");
+        onboardingSection.classList.add("hidden");
+        dashboardSection.classList.add("hidden");
+        logoutBtn.classList.add("hidden");
+        userEmailDisplay.textContent = "";
     }
 });
