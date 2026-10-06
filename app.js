@@ -28,15 +28,14 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyBSX4KMq5gKcZqgb0c5bWxEq3ubzafkhHo",
-    authDomain: "mysugarpartner-862e4.firebaseapp.com",
-    projectId: "mysugarpartner-862e4",
-    storageBucket: "mysugarpartner-862e4.firebasestorage.app",
-    messagingSenderId: "631172635884",
-    appId: "1:631172635884:web:45c7ff9c763e72c3fa59c9",
-    measurementId: "G-LCGD0HQLMP"
+  apiKey: "AIzaSyBW_99MWDKF97WqrN3cY5usUfz8m5Z9HGk",
+  authDomain: "mysugarpartner-18559.firebaseapp.com",
+  projectId: "mysugarpartner-18559",
+  storageBucket: "mysugarpartner-18559.firebasestorage.app",
+  messagingSenderId: "284798589498",
+  appId: "1:284798589498:web:acaee9e664e23ed9b27303",
+  measurementId: "G-CSB2RL6RXD"
 };
-
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
